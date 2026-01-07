@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import '../../services/signaling_service.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:math';
 
 class ChessScreen extends StatefulWidget {
   const ChessScreen({Key? key}) : super(key: key);
@@ -28,7 +30,10 @@ class _ChessGameScreenState extends State<ChessScreen> {
   SignalingService _signalingService = SignalingService();
   RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
-  bool _inCall = false;
+
+  bool _isConnectedToRoom = false;
+  bool _isAudioOn = false;
+  bool _isMuted = false;
   String _callStatus = "";
 
   // New variables for check/checkmate detection
@@ -69,6 +74,78 @@ class _ChessGameScreenState extends State<ChessScreen> {
         _callStatus = "Connected to opponent";
       });
     });
+
+    _signalingService.onGameMove = (data) {
+      // Handle remote move
+      print("Received move: $data");
+      setState(() {
+        _handleRemoteMove(data);
+      });
+    };
+    
+    _signalingService.onPlayerLeft = () {
+       print("Opponent left");
+       _hangUp(); // Disconnect self
+    };
+    
+    _signalingService.onIncomingCall = () {
+      if (!_isAudioOn) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Incoming Audio Call... Press Phone icon to join."),
+            duration: Duration(seconds: 3),
+            backgroundColor: Colors.blue,
+            action: SnackBarAction(
+               label: 'Join',
+               textColor: Colors.white,
+               onPressed: () => _toggleAudio(),
+            ),
+          ),
+        );
+      }
+    };
+
+    _signalingService.onEndCall = () async {
+       if (_isAudioOn) {
+          await _signalingService.stopAudio();
+          setState(() {
+            _isAudioOn = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Call ended by opponent."))
+          );
+       }
+    };
+  }
+  
+  void _showOpponentLeftDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Disconnected"),
+        content: Text("Opponent has left the room."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("OK"),
+          )
+        ],
+      )
+    );
+  }
+  
+  void _toggleMute() {
+    setState(() {
+      _isMuted = !_isMuted;
+    });
+    _signalingService.muteAudio(_isMuted);
+  }
+  
+  void _onLogout() {
+     if (_isConnectedToRoom) {
+       _signalingService.sendBye();
+       _hangUp();
+     }
   }
 
   @override
@@ -79,16 +156,142 @@ class _ChessGameScreenState extends State<ChessScreen> {
     super.dispose();
   }
 
-  Future<void> _showJoinCallDialog() async {
-    final TextEditingController _roomIdController = TextEditingController(text: "testroom");
+
+
+  void _handleRemoteMove(Map<String, dynamic> data) {
+    if (data['type'] == 'move') {
+      int fromRow = data['fromRow'];
+      int fromCol = data['fromCol'];
+      int toRow = data['toRow'];
+      int toCol = data['toCol'];
+      String piece = data['movedPiece'];
+      
+      _executeMove(fromRow, fromCol, toRow, toCol, piece);
+    }
+  }
+
+  // Helper to determine the correct host based on platform
+  String get _host {
+    if (kIsWeb) return "127.0.0.1:8000";
+    if (defaultTargetPlatform == TargetPlatform.android) return "10.0.2.2:8000";
+    return "127.0.0.1:8000";
+  }
+
+  void _connectRoom(String roomId) async {
+    setState(() {
+      _callStatus = "Connecting to room...";
+    });
+    
+    final host = _host;
+    print("Connecting to $host for room $roomId");
+    
+    _signalingService.connect(host, roomId);
+
+    setState(() {
+      _isConnectedToRoom = true;
+      _callStatus = "Room: $roomId";
+    });
+  }
+
+  void _toggleAudio() async {
+    if (_isAudioOn) {
+       _signalingService.sendEndCall();
+       await _signalingService.stopAudio();
+       setState(() {
+         _isAudioOn = false;
+       });
+    } else {
+       await _signalingService.openUserMedia(_localRenderer, _remoteRenderer);
+       await _signalingService.call();
+       setState(() {
+         _isAudioOn = true;
+       });
+    }
+  }
+
+  void _showRoomDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Play Online'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _createRoom();
+                },
+                child: Text('Create Room'),
+                style: ElevatedButton.styleFrom(minimumSize: Size(double.infinity, 40)),
+              ),
+              SizedBox(height: 10),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _showJoinDialog();
+                },
+                child: Text('Join Room'),
+                 style: ElevatedButton.styleFrom(minimumSize: Size(double.infinity, 40)),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _createRoom() {
+    // Generate random 4-digit ID
+    final String roomId = (1000 + Random().nextInt(9000)).toString();
+    _connectRoom(roomId);
+    
+    // Show ID to user
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Room Created'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Share this ID with your friend:'),
+            SizedBox(height: 10),
+            Text(
+              roomId,
+              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 2),
+            ),
+             SizedBox(height: 20),
+            Text('Waiting for opponent...'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showJoinDialog() async {
+    final TextEditingController _roomIdController = TextEditingController();
     return showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('Join Audio Call'),
+          title: Text('Join Room'),
           content: TextField(
             controller: _roomIdController,
-            decoration: InputDecoration(hintText: "Enter Room ID"),
+            decoration: InputDecoration(hintText: "Enter Room ID (e.g. 1234)"),
+            keyboardType: TextInputType.number,
           ),
           actions: [
             TextButton(
@@ -96,9 +299,12 @@ class _ChessGameScreenState extends State<ChessScreen> {
               child: Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context); // Close dialog
-                _connectCall(_roomIdController.text);
+              onPressed: () {
+                final roomId = _roomIdController.text.trim();
+                if (roomId.isNotEmpty) {
+                  Navigator.pop(context);
+                  _connectRoom(roomId);
+                }
               },
               child: Text('Join'),
             ),
@@ -108,28 +314,95 @@ class _ChessGameScreenState extends State<ChessScreen> {
     );
   }
 
-  void _connectCall(String roomId) async {
-    setState(() {
-       _callStatus = "Connecting...";
-    });
-    // Use localhost for emulator (10.0.2.2) or local IP for device
-    _signalingService.connect("10.0.2.2:8000", roomId);
-    
-    await _signalingService.openUserMedia(_localRenderer, _remoteRenderer);
-    await _signalingService.call(); // Initiate offer
-    
-    setState(() {
-      _inCall = true;
-      _callStatus = "Calling...";
-    });
+  // Deprecated direct join (keeping helper but unused in main UI flow if prefered)
+  Future<void> _showJoinCallDialog() async {
+    _showJoinDialog();
   }
 
   void _hangUp() async {
-      await _signalingService.hangUp();
-      setState(() {
-        _inCall = false;
-        _callStatus = "";
-      });
+    await _signalingService.hangUp();
+    await _signalingService.disconnect();
+    setState(() {
+      _isConnectedToRoom = false;
+      _isAudioOn = false;
+      _callStatus = "";
+    });
+  }
+
+  void _executeMove(int fromRow, int fromCol, int toRow, int toCol, String piece) {
+     if (gameOver) return;
+
+    final capturedPiece = board[toRow][toCol];
+
+    // Record move
+    moveHistory.add({
+      'fromRow': fromRow,
+      'fromCol': fromCol,
+      'toRow': toRow,
+      'toCol': toCol,
+      'movedPiece': piece,
+      'capturedPiece': capturedPiece,
+      'wasWhiteTurn': isWhiteTurn,
+    });
+
+    if (moveHistory.length > 50) moveHistory.removeAt(0);
+
+    // Execute move
+    board[toRow][toCol] = piece;
+    board[fromRow][fromCol] = '';
+
+    // Switch turns
+    isWhiteTurn = !isWhiteTurn;
+
+    // Clear selection
+    selectedPiece = '';
+    selectedRow = -1;
+    selectedCol = -1;
+
+    // Clear valid moves
+    for (int i = 0; i < 8; i++) {
+      for (int j = 0; j < 8; j++) {
+        validMoves[i][j] = false;
+      }
+    }
+
+    // Update check status
+    _updateCheckStatus();
+
+    // Check for checkmate or stalemate
+    final currentPlayerInCheck = isWhiteTurn ? whiteInCheck : blackInCheck;
+    final hasLegalMoves = _hasAnyLegalMove(isWhiteTurn);
+
+    if (currentPlayerInCheck && !hasLegalMoves) {
+      // Checkmate!
+      gameOver = true;
+      winner = isWhiteTurn ? 'Black' : 'White';
+      status = 'Checkmate! $winner wins!';
+      _showGameOverDialog('Checkmate! $winner wins!');
+    } else if (!currentPlayerInCheck && !hasLegalMoves) {
+      // Stalemate
+      gameOver = true;
+      status = 'Stalemate! Game drawn.';
+      _showGameOverDialog('Stalemate! Game drawn.');
+    }
+  }
+
+  void _movePiece(int toRow, int toCol) {
+     // Local move
+     // Send move to opponent
+     if (_isConnectedToRoom) {
+       _signalingService.sendMove({
+         'fromRow': selectedRow,
+         'fromCol': selectedCol,
+         'toRow': toRow,
+         'toCol': toCol,
+         'movedPiece': selectedPiece,
+       });
+     }
+
+     setState(() {
+        _executeMove(selectedRow, selectedCol, toRow, toCol, selectedPiece);
+     });
   }
 
   void _initializeBoard() {
@@ -539,66 +812,6 @@ class _ChessGameScreenState extends State<ChessScreen> {
     }
   }
 
-  void _movePiece(int toRow, int toCol) {
-    if (gameOver) return;
-
-    final capturedPiece = board[toRow][toCol];
-
-    // Record move
-    moveHistory.add({
-      'fromRow': selectedRow,
-      'fromCol': selectedCol,
-      'toRow': toRow,
-      'toCol': toCol,
-      'movedPiece': selectedPiece,
-      'capturedPiece': capturedPiece,
-      'wasWhiteTurn': isWhiteTurn,
-    });
-
-    if (moveHistory.length > 50) moveHistory.removeAt(0);
-
-    // Execute move
-    setState(() {
-      board[toRow][toCol] = selectedPiece;
-      board[selectedRow][selectedCol] = '';
-
-      // Switch turns
-      isWhiteTurn = !isWhiteTurn;
-
-      // Clear selection
-      selectedPiece = '';
-      selectedRow = -1;
-      selectedCol = -1;
-
-      // Clear valid moves
-      for (int i = 0; i < 8; i++) {
-        for (int j = 0; j < 8; j++) {
-          validMoves[i][j] = false;
-        }
-      }
-
-      // Update check status
-      _updateCheckStatus();
-
-      // Check for checkmate or stalemate
-      final currentPlayerInCheck = isWhiteTurn ? whiteInCheck : blackInCheck;
-      final hasLegalMoves = _hasAnyLegalMove(isWhiteTurn);
-
-      if (currentPlayerInCheck && !hasLegalMoves) {
-        // Checkmate!
-        gameOver = true;
-        winner = isWhiteTurn ? 'Black' : 'White';
-        status = 'Checkmate! $winner wins!';
-        _showGameOverDialog('Checkmate! $winner wins!');
-      } else if (!currentPlayerInCheck && !hasLegalMoves) {
-        // Stalemate
-        gameOver = true;
-        status = 'Stalemate! Game drawn.';
-        _showGameOverDialog('Stalemate! Game drawn.');
-      }
-    });
-  }
-
   void _onSquareTap(int row, int col) {
     if (gameOver) return;
 
@@ -753,28 +966,32 @@ class _ChessGameScreenState extends State<ChessScreen> {
         title: const Text('Chess Game'),
         backgroundColor: Colors.blue[800],
         actions: [
-          IconButton(
-            icon: const Icon(Icons.undo, color: Colors.white),
-            onPressed: _undoMove,
-            tooltip: 'Undo Move',
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: _initializeBoard,
-            tooltip: 'New Game',
-          ),
-          if (!_inCall)
-          IconButton(
-            icon: const Icon(Icons.call, color: Colors.white),
-            onPressed: _showJoinCallDialog,
-            tooltip: 'Join Audio Call',
-          ),
-          if (_inCall)
-          IconButton(
-            icon: const Icon(Icons.call_end, color: Colors.red),
-            onPressed: _hangUp,
-            tooltip: 'End Call',
-          ),
+          if (_isConnectedToRoom) ...[
+             if (!_isAudioOn)
+               IconButton(
+                 icon: const Icon(Icons.call, color: Colors.white),
+                 onPressed: _toggleAudio,
+                 tooltip: "Start Audio Call",
+               ),
+             if (_isAudioOn) ...[
+                 IconButton(
+                   icon: Icon(_isMuted ? Icons.mic_off : Icons.mic),
+                   color: _isMuted ? Colors.red : Colors.white,
+                   onPressed: _toggleMute,
+                   tooltip: _isMuted ? "Unmute" : "Mute",
+                 ),
+                 IconButton(
+                   icon: const Icon(Icons.call_end, color: Colors.red),
+                   onPressed: _toggleAudio, // Ends audio call
+                   tooltip: 'End Call',
+                 ),
+             ],
+             IconButton(
+               icon: const Icon(Icons.logout, color: Colors.white),
+               onPressed: _onLogout,
+               tooltip: 'Leave Room',
+             ),
+          ]
         ],
       ),
       body: Column(
@@ -896,20 +1113,19 @@ class _ChessGameScreenState extends State<ChessScreen> {
             ),
           ),
           // Call Status Footer
-          if (_inCall || _callStatus.isNotEmpty)
-          Container(
-            padding: EdgeInsets.all(8),
-            color: Colors.green[100],
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.mic, size: 16),
-                SizedBox(width: 8),
-                Text("Voice: $_callStatus"),
-              ],
+          if (_isConnectedToRoom || _callStatus.isNotEmpty)
+            Container(
+              padding: EdgeInsets.all(8),
+              color: Colors.green[100],
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.mic, size: 16),
+                  SizedBox(width: 8),
+                  Text("Voice: $_callStatus"),
+                ],
+              ),
             ),
-          ),
-
 
           // Controls
           Padding(
@@ -938,9 +1154,9 @@ class _ChessGameScreenState extends State<ChessScreen> {
                   ),
                 ),
                 ElevatedButton.icon(
-                  onPressed: () => context.go('/profile'),
-                  icon: const Icon(Icons.person),
-                  label: const Text('Profile'),
+                  onPressed: _showRoomDialog,
+                  icon: const Icon(Icons.videogame_asset),
+                  label: const Text('Play Online'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                     padding: const EdgeInsets.symmetric(

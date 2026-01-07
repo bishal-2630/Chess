@@ -39,7 +39,9 @@ def main():
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
-            bufsize=1
+            bufsize=1,
+            encoding='utf-8',
+            errors='replace' 
         )
         
         # Read output
@@ -48,14 +50,17 @@ def main():
         
         # Wait and check if started
         for i in range(15):
-            line = process.stdout.readline()
-            if line:
-                print(line.rstrip())
-                if "Starting development server" in line:
-                    print("\n✅ Django backend started successfully!")
-                    print("📧 OTP email system is READY")
-                    print("\n🛑 Press Ctrl+C to stop the backend")
-                    break
+            try:
+                line = process.stdout.readline()
+                if line:
+                    print(line.rstrip())
+                    if "Starting development server" in line:
+                        print("\n✅ Django backend started successfully!")
+                        print("📧 OTP email system is READY")
+                        print("\n🛑 Press Ctrl+C to stop the backend")
+                        break
+            except UnicodeDecodeError:
+                continue
             time.sleep(1)
             
             # Check if process died
@@ -66,9 +71,12 @@ def main():
         # Keep running
         try:
             while True:
-                line = process.stdout.readline()
-                if line:
-                    print(line.rstrip())
+                try:
+                    line = process.stdout.readline()
+                    if line:
+                        print(line.rstrip())
+                except UnicodeDecodeError:
+                    pass
                 time.sleep(0.1)
         except KeyboardInterrupt:
             print("\n🛑 Stopping Django backend...")

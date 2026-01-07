@@ -4,12 +4,17 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
 
-  final String _baseUrl = 'http://192.168.1.68:8000/api/auth/';
+  String get _baseUrl {
+    if (kIsWeb) return 'http://127.0.0.1:8000/api/auth/';
+    if (defaultTargetPlatform == TargetPlatform.android) return 'http://10.0.2.2:8000/api/auth/';
+    return 'http://127.0.0.1:8000/api/auth/';
+  }
 
   // Sign In with Email/Password
   Future<User?> signInWithEmailPassword(String email, String password) async {

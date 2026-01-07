@@ -14,7 +14,11 @@ class SignalingService {
   StreamStateCallback? onLocalStream;
   StreamStateCallback? onAddRemoteStream;
   StreamStateCallback? onRemoveRemoteStream;
-  
+  Function(Map<String, dynamic>)? onGameMove;
+  void Function()? onPlayerLeft;
+  void Function()? onEndCall;
+  void Function()? onIncomingCall;
+
   // Stun servers
   Map<String, dynamic> configuration = {
     'iceServers': [
@@ -41,10 +45,14 @@ class SignalingService {
 
   Future<void> _onMessage(Map<String, dynamic> data) async {
     String type = data['type'];
-    Map<String, dynamic> payload = data['payload'] ?? data; // handle structure variations
+    // handle structure variations: sometimes payload is nested, sometimes flat
+    Map<String, dynamic> payload = data['payload'] ?? data; 
 
     switch (type) {
       case 'offer':
+        if (onIncomingCall != null) {
+          onIncomingCall!();
+        }
         await _handleOffer(payload);
         break;
       case 'answer':
@@ -53,9 +61,28 @@ class SignalingService {
       case 'candidate':
         await _handleCandidate(payload);
         break;
+      case 'move':
+        if (onGameMove != null) {
+          onGameMove!(payload);
+        }
+        break;
+      case 'bye':
+        if (onPlayerLeft != null) {
+           onPlayerLeft!();
+        }
+        break;
+      case 'end_call':
+        if (onEndCall != null) {
+          onEndCall!();
+        }
+        break;
       default:
         print('Unknown message type: $type');
     }
+  }
+
+  void sendEndCall() {
+     _send('end_call', {});
   }
 
   Future<void> _createPeerConnection() async {
@@ -153,7 +180,22 @@ class SignalingService {
      }
   }
 
-  Future<void> hangUp() async {
+  void sendMove(Map<String, dynamic> moveData) {
+    _send('move', moveData);
+  }
+  
+  void sendBye() {
+    _send('bye', {});
+  }
+  
+  void muteAudio(bool mute) {
+    if (_localStream != null && _localStream!.getAudioTracks().isNotEmpty) {
+      _localStream!.getAudioTracks()[0].enabled = !mute;
+    }
+  }
+
+  // Close only audio/video, keep WebSocket (Game) alive
+  Future<void> stopAudio() async {
       try {
         if (_localStream != null) {
           _localStream!.dispose();
@@ -163,11 +205,24 @@ class SignalingService {
           _peerConnection!.close();
           _peerConnection = null;
         }
+      } catch (e) {
+        print(e.toString());
+      }
+  }
+
+  // Close everything including WebSocket
+  Future<void> disconnect() async {
+      await stopAudio();
+      try {
         if (_channel != null) {
            _channel!.sink.close();
+           _channel = null;
         }
       } catch (e) {
         print(e.toString());
       }
   }
+
+  // Deprecated alias
+  Future<void> hangUp() => disconnect();
 }
