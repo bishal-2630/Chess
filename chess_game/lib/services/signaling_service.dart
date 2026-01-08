@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import './websocket_helper.dart';
 
 typedef void StreamStateCallback(MediaStream stream);
 
@@ -44,7 +45,10 @@ class SignalingService {
   void connect(String socketUrl) {
     print('Connecting to signaling server: $socketUrl');
     try {
-      _channel = WebSocketChannel.connect(Uri.parse(socketUrl));
+      _channel = connectWithHeaders(
+        socketUrl,
+        {'ngrok-skip-browser-warning': 'true'},
+      );
       
       _channel!.stream.listen((message) {
         print('Received message: $message');
