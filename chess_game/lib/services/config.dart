@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 class AppConfig {
-  static const String _productionHost = 'ktw0rs8y.up.railway.app';
+  static const String _productionHost = 'chess-game-app-production.up.railway.app';
 
   static String get baseUrl {
     if (kIsWeb) return 'http://127.0.0.1:8000/api/auth/';
