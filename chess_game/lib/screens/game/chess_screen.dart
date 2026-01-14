@@ -1832,31 +1832,37 @@ class _ChessGameScreenState extends State<ChessScreen> {
           // Chess Board
           Expanded(
             child: Center(
-              child: Container(
-                width: MediaQuery.of(context).size.width * 0.9,
-                height: MediaQuery.of(context).size.width * 0.9,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.brown, width: 4),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 10,
-                      spreadRadius: 2,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Use the smaller dimension to keep board square and on screen
+                  final size = min(constraints.maxWidth, constraints.maxHeight) * 0.9;
+                  return Container(
+                    width: size,
+                    height: size,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.brown, width: 4),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 10,
+                          spreadRadius: 2,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: GridView.builder(
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 8,
-                  ),
-                  itemCount: 64,
-                  itemBuilder: (context, index) {
-                    final row = index ~/ 8;
-                    final col = index % 8;
-                    return _buildChessSquare(row, col);
-                  },
-                ),
+                    child: GridView.builder(
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 8,
+                      ),
+                      itemCount: 64,
+                      itemBuilder: (context, index) {
+                        final row = index ~/ 8;
+                        final col = index % 8;
+                        return _buildChessSquare(row, col);
+                      },
+                    ),
+                  );
+                },
               ),
             ),
           ),
