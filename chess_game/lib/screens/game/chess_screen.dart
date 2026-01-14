@@ -27,6 +27,25 @@ class _ChessGameScreenState extends State<ChessScreen> {
   String status = "White's turn";
   List<List<bool>> validMoves = [];
   List<Map<String, dynamic>> moveHistory = [];
+  List<String> whiteCapturedPieces = [];
+  List<String> blackCapturedPieces = [];
+
+  // Advanced chess state
+  bool whiteKingMoved = false;
+  bool blackKingMoved = false;
+  bool whiteKingsideRookMoved = false;
+  bool whiteQueensideRookMoved = false;
+  bool blackKingsideRookMoved = false;
+  bool blackQueensideRookMoved = false;
+  String? enPassantTarget; // Square where en passant is possible (e.g., "e3")
+  int halfMoveClock = 0; // For 50-move rule (moves without capture/pawn move)
+  int fullMoveNumber = 1;
+  List<String> positionHistory = []; // For threefold repetition
+  bool whiteInCheck = false;
+  bool blackInCheck = false;
+  bool gameOver = false;
+  String winner = '';
+  String? pendingPromotion; // Stores the pawn that needs promotion
 
   // Audio Call State
   SignalingService _signalingService = SignalingService();
@@ -40,12 +59,6 @@ class _ChessGameScreenState extends State<ChessScreen> {
   String _callStatus = "";
   String? _playerColor; // 'w' or 'b' in multiplayer mode
   Timer? _statusTimer;
-
-  // New variables for check/checkmate detection
-  bool whiteInCheck = false;
-  bool blackInCheck = false;
-  bool gameOver = false;
-  String winner = '';
 
   final Map<String, String> pieceIcons = {
     'wp': '♙',
@@ -85,36 +98,33 @@ class _ChessGameScreenState extends State<ChessScreen> {
         _handleRemoteMove(data);
       });
     };
-    
+
     _signalingService.onPlayerLeft = () {
-       print("Opponent left");
-       ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("Opponent left the room."),
-              backgroundColor: Colors.redAccent,
-              behavior: SnackBarBehavior.floating,
-              duration: Duration(seconds: 5),
-            )
-       );
-       _hangUp(); // Disconnect self
+      print("Opponent left");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text("Opponent left the room."),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 5),
+      ));
+      _hangUp(); // Disconnect self
     };
-    
+
     _signalingService.onConnectionState = (isConnected) {
-       setState(() {
-         _isConnectedToRoom = isConnected;
-       });
-       if (isConnected) {
-         _setEphemeralStatus("Connected to Server");
-       } else {
-         _setEphemeralStatus("Disconnected");
-       }
-       if (!isConnected) {
-         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Warning: Disconnected from signaling server."))
-         );
-       }
+      setState(() {
+        _isConnectedToRoom = isConnected;
+      });
+      if (isConnected) {
+        _setEphemeralStatus("Connected to Server");
+      } else {
+        _setEphemeralStatus("Disconnected");
+      }
+      if (!isConnected) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("Warning: Disconnected from signaling server.")));
+      }
     };
-    
+
     _signalingService.onIncomingCall = () {
       setState(() {
         _isIncomingCall = true;
@@ -124,40 +134,39 @@ class _ChessGameScreenState extends State<ChessScreen> {
     };
 
     _signalingService.onCallAccepted = () {
-       setState(() {
-         _isAudioOn = true;
-       });
-       _setEphemeralStatus("Call Accepted");
+      setState(() {
+        _isAudioOn = true;
+      });
+      _setEphemeralStatus("Call Accepted");
     };
 
     _signalingService.onCallRejected = () {
-       setState(() {
-         _callStatus = "";
-       });
-       _setEphemeralStatus("Call Rejected by Opponent");
+      setState(() {
+        _callStatus = "";
+      });
+      _setEphemeralStatus("Call Rejected by Opponent");
     };
 
     _signalingService.onEndCall = () async {
-       if (_isAudioOn || _callStatus == "Calling...") {
-          await _signalingService.stopAudio();
-          setState(() {
-            _isAudioOn = false;
-            _isIncomingCall = false;
-          });
-          _setEphemeralStatus("Call Ended");
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Call ended."), duration: Duration(seconds: 2))
-          );
-       }
+      if (_isAudioOn || _callStatus == "Calling...") {
+        await _signalingService.stopAudio();
+        setState(() {
+          _isAudioOn = false;
+          _isIncomingCall = false;
+        });
+        _setEphemeralStatus("Call Ended");
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("Call ended."), duration: Duration(seconds: 2)));
+      }
     };
 
     _signalingService.onNewGame = () {
-       _initializeBoard();
-       _setEphemeralStatus("Opponent started a new game");
+      _initializeBoard();
+      _setEphemeralStatus("Opponent started a new game");
     };
 
     _signalingService.onPlayerJoined = () {
-       _setEphemeralStatus("Opponent joined the room");
+      _setEphemeralStatus("Opponent joined the room");
     };
   }
 
@@ -174,69 +183,68 @@ class _ChessGameScreenState extends State<ChessScreen> {
       }
     });
   }
-  
+
   void _showIncomingCallDialog() {
     showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Text("Incoming Audio Call"),
-        content: Text("Opponent wants to start a voice chat."),
-        actions: [
-          TextButton(
-            onPressed: () {
-               Navigator.pop(context);
-               _signalingService.sendCallRejected();
-               // Reject / Ignore
-               setState(() {
-                 _isIncomingCall = false;
-               });
-               _setEphemeralStatus("Call Declined");
-            }, 
-            child: Text("Reject", style: TextStyle(color: Colors.red)),
-          ),
-          ElevatedButton.icon(
-            icon: Icon(Icons.call),
-            label: Text("Accept"),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            onPressed: () async {
-              Navigator.pop(context);
-              await _toggleAudio();
-            },
-          )
-        ],
-      )
-    );
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+              title: Text("Incoming Audio Call"),
+              content: Text("Opponent wants to start a voice chat."),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _signalingService.sendCallRejected();
+                    // Reject / Ignore
+                    setState(() {
+                      _isIncomingCall = false;
+                    });
+                    _setEphemeralStatus("Call Declined");
+                  },
+                  child: Text("Reject", style: TextStyle(color: Colors.red)),
+                ),
+                ElevatedButton.icon(
+                  icon: Icon(Icons.call),
+                  label: Text("Accept"),
+                  style:
+                      ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await _toggleAudio();
+                  },
+                )
+              ],
+            ));
   }
-  
+
   void _showOpponentLeftDialog() {
     showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text("Disconnected"),
-        content: Text("Opponent has left the room."),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text("OK"),
-          )
-        ],
-      )
-    );
+        context: context,
+        builder: (context) => AlertDialog(
+              title: Text("Disconnected"),
+              content: Text("Opponent has left the room."),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text("OK"),
+                )
+              ],
+            ));
   }
-  
+
   void _toggleMute() {
     setState(() {
       _isMuted = !_isMuted;
     });
     _signalingService.muteAudio(_isMuted);
   }
-  
+
   void _onLogout() {
-     if (_isConnectedToRoom) {
-       _signalingService.sendBye();
-       _hangUp();
-     }
+    if (_isConnectedToRoom) {
+      _signalingService.sendBye();
+      _hangUp();
+    }
   }
 
   @override
@@ -248,8 +256,6 @@ class _ChessGameScreenState extends State<ChessScreen> {
     super.dispose();
   }
 
-
-
   void _handleRemoteMove(Map<String, dynamic> data) {
     if (data['type'] == 'move') {
       int fromRow = data['fromRow'];
@@ -257,8 +263,9 @@ class _ChessGameScreenState extends State<ChessScreen> {
       int toRow = data['toRow'];
       int toCol = data['toCol'];
       String piece = data['movedPiece'];
-      
-      _executeMove(fromRow, fromCol, toRow, toCol, piece);
+      String? promotion = data['promotion'];
+
+      _executeMove(fromRow, fromCol, toRow, toCol, piece, promotion: promotion);
     }
   }
 
@@ -272,49 +279,49 @@ class _ChessGameScreenState extends State<ChessScreen> {
     String fullUrl = serverUrl;
     if (!fullUrl.endsWith("/")) fullUrl += "/";
     fullUrl += "$roomId/";
-    
+
     setState(() {
       _callStatus = "Connecting...";
     });
-    
+
     print("Connecting to $fullUrl");
     _signalingService.connect(fullUrl);
-    
+
     // Notify room that we joined
     Future.delayed(Duration(milliseconds: 500), () {
-       _signalingService.sendJoin();
+      _signalingService.sendJoin();
     });
-    
+
     // Note: Success state is set via onConnectionState callback
   }
 
   Future<void> _toggleAudio() async {
     if (_isAudioOn) {
-       // End Call
-       _signalingService.sendEndCall();
-       await _signalingService.stopAudio();
-       setState(() {
-         _isAudioOn = false;
-         _isIncomingCall = false;
-       });
+      // End Call
+      _signalingService.sendEndCall();
+      await _signalingService.stopAudio();
+      setState(() {
+        _isAudioOn = false;
+        _isIncomingCall = false;
+      });
     } else {
-       // Start or Accept Call
-       if (_isIncomingCall) {
-          // Accept
-          await _signalingService.acceptCall(_localRenderer, _remoteRenderer);
-          setState(() {
-            _isAudioOn = true;
-            _isIncomingCall = false;
-          });
-          _setEphemeralStatus("Call Connected");
-       } else {
-          // Start Call (Initiator part)
-          await _signalingService.startCall(_localRenderer, _remoteRenderer);
-          setState(() {
-             // We don't set _isAudioOn yet! Wait for onCallAccepted
-          });
-          _setEphemeralStatus("Calling...");
-       }
+      // Start or Accept Call
+      if (_isIncomingCall) {
+        // Accept
+        await _signalingService.acceptCall(_localRenderer, _remoteRenderer);
+        setState(() {
+          _isAudioOn = true;
+          _isIncomingCall = false;
+        });
+        _setEphemeralStatus("Call Connected");
+      } else {
+        // Start Call (Initiator part)
+        await _signalingService.startCall(_localRenderer, _remoteRenderer);
+        setState(() {
+          // We don't set _isAudioOn yet! Wait for onCallAccepted
+        });
+        _setEphemeralStatus("Calling...");
+      }
     }
   }
 
@@ -325,18 +332,20 @@ class _ChessGameScreenState extends State<ChessScreen> {
         return AlertDialog(
           title: Text('Play Online'),
           content: Column(
-             mainAxisSize: MainAxisSize.min,
-             children: [
-               const Text("Connect to the multiplayer server to play with others."),
-               SizedBox(height: 20),
-               ElevatedButton(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                  "Connect to the multiplayer server to play with others."),
+              SizedBox(height: 20),
+              ElevatedButton(
                 onPressed: () {
                   Navigator.pop(context);
                   _playerColor = 'w';
                   _createRoom(_defaultServerUrl);
                 },
                 child: Text('Create Room (Generate ID)'),
-                style: ElevatedButton.styleFrom(minimumSize: Size(double.infinity, 40)),
+                style: ElevatedButton.styleFrom(
+                    minimumSize: Size(double.infinity, 40)),
               ),
               SizedBox(height: 10),
               ElevatedButton(
@@ -346,9 +355,10 @@ class _ChessGameScreenState extends State<ChessScreen> {
                   _showJoinDialog(_defaultServerUrl);
                 },
                 child: Text('Join Room (Enter ID)'),
-                 style: ElevatedButton.styleFrom(minimumSize: Size(double.infinity, 40)),
+                style: ElevatedButton.styleFrom(
+                    minimumSize: Size(double.infinity, 40)),
               ),
-             ],
+            ],
           ),
           actions: [
             TextButton(
@@ -365,7 +375,7 @@ class _ChessGameScreenState extends State<ChessScreen> {
     // Generate random 4-digit ID
     final String roomId = (1000 + Random().nextInt(9000)).toString();
     _connectRoom(serverUrl, roomId);
-    
+
     // Show ID to user
     showDialog(
       context: context,
@@ -380,9 +390,10 @@ class _ChessGameScreenState extends State<ChessScreen> {
             SizedBox(height: 4),
             Text(
               roomId,
-              style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 2),
+              style: TextStyle(
+                  fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 2),
             ),
-             SizedBox(height: 20),
+            SizedBox(height: 20),
             Text('Waiting for opponent...'),
           ],
         ),
@@ -398,7 +409,7 @@ class _ChessGameScreenState extends State<ChessScreen> {
 
   Future<void> _showJoinDialog(String serverUrl) async {
     final TextEditingController _roomIdController = TextEditingController();
-    
+
     return showDialog(
       context: context,
       builder: (context) {
@@ -407,11 +418,13 @@ class _ChessGameScreenState extends State<ChessScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-               Text("Server: $serverUrl", style: TextStyle(fontSize: 12, color: Colors.grey)),
-               SizedBox(height: 10),
-               TextField(
+              Text("Server: $serverUrl",
+                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+              SizedBox(height: 10),
+              TextField(
                 controller: _roomIdController,
-                decoration: InputDecoration(hintText: "Enter Room ID (e.g. 1234)"),
+                decoration:
+                    InputDecoration(hintText: "Enter Room ID (e.g. 1234)"),
                 keyboardType: TextInputType.number,
               ),
             ],
@@ -451,15 +464,250 @@ class _ChessGameScreenState extends State<ChessScreen> {
       _callStatus = "Room Disconnected";
       _playerColor = null; // Back to local mode
     });
-    
+
     // Reset board for a fresh local start if desired, or keep as is.
-    // _initializeBoard(); 
+    // _initializeBoard();
   }
 
-  void _executeMove(int fromRow, int fromCol, int toRow, int toCol, String piece) {
-     if (gameOver) return;
+  // Convert row/col to algebraic notation
+  String _toAlgebraic(int row, int col) {
+    final file = String.fromCharCode('a'.codeUnitAt(0) + col);
+    final rank = (8 - row).toString();
+    return '$file$rank';
+  }
 
-    final capturedPiece = board[toRow][toCol];
+  // Convert algebraic notation to row/col
+  List<int> _fromAlgebraic(String square) {
+    final file = square.codeUnitAt(0) - 'a'.codeUnitAt(0);
+    final rank = 8 - int.parse(square.substring(1));
+    return [rank, file];
+  }
+
+  // Get FEN representation of current position (simplified)
+  String _getBoardFEN() {
+    String fen = '';
+    for (int row = 0; row < 8; row++) {
+      int emptyCount = 0;
+      for (int col = 0; col < 8; col++) {
+        final piece = board[row][col];
+        if (piece.isEmpty) {
+          emptyCount++;
+        } else {
+          if (emptyCount > 0) {
+            fen += emptyCount.toString();
+            emptyCount = 0;
+          }
+          final pieceChar = _getPieceType(piece);
+          final isWhite = _isWhitePiece(piece);
+          String char;
+          switch (pieceChar) {
+            case 'k':
+              char = 'k';
+              break;
+            case 'q':
+              char = 'q';
+              break;
+            case 'r':
+              char = 'r';
+              break;
+            case 'b':
+              char = 'b';
+              break;
+            case 'n':
+              char = 'n';
+              break;
+            case 'p':
+              char = 'p';
+              break;
+            default:
+              char = '';
+          }
+          fen += isWhite ? char.toUpperCase() : char;
+        }
+      }
+      if (emptyCount > 0) fen += emptyCount.toString();
+      if (row < 7) fen += '/';
+    }
+
+    // Add active color
+    fen += isWhiteTurn ? ' w ' : ' b ';
+
+    // Add castling availability
+    String castling = '';
+    if (!whiteKingMoved) {
+      if (!whiteKingsideRookMoved) castling += 'K';
+      if (!whiteQueensideRookMoved) castling += 'Q';
+    }
+    if (!blackKingMoved) {
+      if (!blackKingsideRookMoved) castling += 'k';
+      if (!blackQueensideRookMoved) castling += 'q';
+    }
+    fen += castling.isNotEmpty ? castling : '-';
+
+    // Add en passant target
+    fen += ' ${enPassantTarget ?? "-"} ';
+
+    // Add halfmove clock and fullmove number
+    fen += '$halfMoveClock $fullMoveNumber';
+
+    return fen;
+  }
+
+  // Check for insufficient material draw
+  bool _isInsufficientMaterial() {
+    int whitePieces = 0;
+    int blackPieces = 0;
+    bool whiteHasBishopOrKnight = false;
+    bool blackHasBishopOrKnight = false;
+    int whiteBishops = 0;
+    int blackBishops = 0;
+    bool whiteHasBishopOnLight = false;
+    bool whiteHasBishopOnDark = false;
+    bool blackHasBishopOnLight = false;
+    bool blackHasBishopOnDark = false;
+
+    for (int row = 0; row < 8; row++) {
+      for (int col = 0; col < 8; col++) {
+        final piece = board[row][col];
+        if (piece.isNotEmpty) {
+          final pieceType = _getPieceType(piece);
+          final isWhite = _isWhitePiece(piece);
+
+          if (isWhite) {
+            whitePieces++;
+            if (pieceType == 'q' || pieceType == 'r' || pieceType == 'p') {
+              return false; // Queen, rook, or pawn means sufficient material
+            }
+            if (pieceType == 'b') {
+              whiteBishops++;
+              whiteHasBishopOrKnight = true;
+              // Check bishop color (light or dark square)
+              if ((row + col) % 2 == 0) {
+                whiteHasBishopOnDark = true;
+              } else {
+                whiteHasBishopOnLight = true;
+              }
+            }
+            if (pieceType == 'n') {
+              whiteHasBishopOrKnight = true;
+            }
+          } else {
+            blackPieces++;
+            if (pieceType == 'q' || pieceType == 'r' || pieceType == 'p') {
+              return false; // Queen, rook, or pawn means sufficient material
+            }
+            if (pieceType == 'b') {
+              blackBishops++;
+              blackHasBishopOrKnight = true;
+              // Check bishop color (light or dark square)
+              if ((row + col) % 2 == 0) {
+                blackHasBishopOnDark = true;
+              } else {
+                blackHasBishopOnLight = true;
+              }
+            }
+            if (pieceType == 'n') {
+              blackHasBishopOrKnight = true;
+            }
+          }
+        }
+      }
+    }
+
+    // King vs King
+    if (whitePieces == 1 && blackPieces == 1) return true;
+
+    // King and bishop vs King
+    if (whitePieces == 2 && whiteBishops == 1 && blackPieces == 1) return true;
+    if (blackPieces == 2 && blackBishops == 1 && whitePieces == 1) return true;
+
+    // King and knight vs King
+    if (whitePieces == 2 &&
+        whiteHasBishopOrKnight &&
+        whiteBishops == 0 &&
+        blackPieces == 1) return true;
+    if (blackPieces == 2 &&
+        blackHasBishopOrKnight &&
+        blackBishops == 0 &&
+        whitePieces == 1) return true;
+
+    // King and bishop vs King and bishop with bishops on same color
+    if (whitePieces == 2 &&
+        whiteBishops == 1 &&
+        blackPieces == 2 &&
+        blackBishops == 1) {
+      if ((whiteHasBishopOnLight && blackHasBishopOnLight) ||
+          (whiteHasBishopOnDark && blackHasBishopOnDark)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Check for 50-move rule draw
+  bool _isFiftyMoveDraw() {
+    return halfMoveClock >= 100; // 100 half-moves = 50 full moves
+  }
+
+  // Check for threefold repetition draw
+  bool _isThreefoldRepetition() {
+    final currentPosition = _getBoardFEN().split(' ')[0]; // Only board position
+    final repetitions =
+        positionHistory.where((pos) => pos == currentPosition).length;
+    return repetitions >= 3;
+  }
+
+  void _executeMove(
+      int fromRow, int fromCol, int toRow, int toCol, String piece,
+      {String? promotion}) {
+    if (gameOver) return;
+
+    final pieceType = _getPieceType(piece);
+    final isWhite = _isWhitePiece(piece);
+    String capturedPiece = board[toRow][toCol];
+    bool isEnPassantCapture = false;
+    bool isCastling = false;
+
+    // Check for en passant capture
+    if (pieceType == 'p' &&
+        fromCol != toCol &&
+        capturedPiece.isEmpty &&
+        enPassantTarget != null) {
+      final targetPos = _fromAlgebraic(enPassantTarget!);
+      if (toRow == targetPos[0] && toCol == targetPos[1]) {
+        // Capture the pawn behind
+        final capturedRow = fromRow;
+        final capturedCol = toCol;
+        capturedPiece = board[capturedRow][capturedCol];
+        board[capturedRow][capturedCol] = '';
+        isEnPassantCapture = true;
+      }
+    }
+
+    // Check for castling
+    if (pieceType == 'k' && (fromCol - toCol).abs() == 2) {
+      isCastling = true;
+      // Move the rook
+      if (toCol > fromCol) {
+        // Kingside castling
+        board[toRow][toCol - 1] = board[toRow][7];
+        board[toRow][7] = '';
+      } else {
+        // Queenside castling
+        board[toRow][toCol + 1] = board[toRow][0];
+        board[toRow][0] = '';
+      }
+    }
+
+    // Handle regular capture
+    if (capturedPiece.isNotEmpty && !isEnPassantCapture) {
+      if (isWhiteTurn) {
+        blackCapturedPieces.add(capturedPiece);
+      } else {
+        whiteCapturedPieces.add(capturedPiece);
+      }
+    }
 
     // Record move
     moveHistory.add({
@@ -470,13 +718,71 @@ class _ChessGameScreenState extends State<ChessScreen> {
       'movedPiece': piece,
       'capturedPiece': capturedPiece,
       'wasWhiteTurn': isWhiteTurn,
+      'isEnPassant': isEnPassantCapture,
+      'isCastling': isCastling,
+      'promotion': promotion,
     });
 
     if (moveHistory.length > 50) moveHistory.removeAt(0);
 
     // Execute move
-    board[toRow][toCol] = piece;
+    String movedPiece = piece;
+
+    // Handle pawn promotion
+    if (pieceType == 'p' && (toRow == 0 || toRow == 7)) {
+      if (promotion != null) {
+        // Use specified promotion
+        movedPiece = (isWhite ? 'w' : 'b') + promotion;
+      } else {
+        // Queue promotion dialog
+        pendingPromotion = _toAlgebraic(toRow, toCol);
+        board[toRow][toCol] = piece; // Temporarily place pawn
+        board[fromRow][fromCol] = '';
+
+        // Show promotion dialog
+        _showPromotionDialog(toRow, toCol, isWhite);
+        return; // Don't continue with turn logic yet
+      }
+    }
+
+    board[toRow][toCol] = movedPiece;
     board[fromRow][fromCol] = '';
+
+    // Update castling rights
+    if (piece == 'wk') whiteKingMoved = true;
+    if (piece == 'bk') blackKingMoved = true;
+    if (piece == 'wr' && fromCol == 0 && fromRow == 7)
+      whiteQueensideRookMoved = true;
+    if (piece == 'wr' && fromCol == 7 && fromRow == 7)
+      whiteKingsideRookMoved = true;
+    if (piece == 'br' && fromCol == 0 && fromRow == 0)
+      blackQueensideRookMoved = true;
+    if (piece == 'br' && fromCol == 7 && fromRow == 0)
+      blackKingsideRookMoved = true;
+
+    // Set en passant target for next move
+    if (pieceType == 'p' && (fromRow - toRow).abs() == 2) {
+      // Pawn moved two squares
+      final enPassantRow = (fromRow + toRow) ~/ 2;
+      enPassantTarget = _toAlgebraic(enPassantRow, fromCol);
+    } else {
+      enPassantTarget = null;
+    }
+
+    // Update half-move clock
+    if (capturedPiece.isNotEmpty || pieceType == 'p') {
+      halfMoveClock = 0;
+    } else {
+      halfMoveClock++;
+    }
+
+    // Update full move number after black's move
+    if (!isWhiteTurn) {
+      fullMoveNumber++;
+    }
+
+    // Add position to history for threefold repetition
+    positionHistory.add(_getBoardFEN().split(' ')[0]);
 
     // Switch turns
     isWhiteTurn = !isWhiteTurn;
@@ -496,40 +802,121 @@ class _ChessGameScreenState extends State<ChessScreen> {
     // Update check status
     _updateCheckStatus();
 
-    // Check for checkmate or stalemate
-    final currentPlayerInCheck = isWhiteTurn ? whiteInCheck : blackInCheck;
-    final hasLegalMoves = _hasAnyLegalMove(isWhiteTurn);
+    // Check for draws
+    _checkForDraws();
 
-    if (currentPlayerInCheck && !hasLegalMoves) {
-      // Checkmate!
-      gameOver = true;
-      winner = isWhiteTurn ? 'Black' : 'White';
-      status = 'Checkmate! $winner wins!';
-      _showGameOverDialog('Checkmate! $winner wins!');
-    } else if (!currentPlayerInCheck && !hasLegalMoves) {
-      // Stalemate
-      gameOver = true;
-      status = 'Stalemate! Game drawn.';
-      _showGameOverDialog('Stalemate! Game drawn.');
+    // Check for checkmate or stalemate
+    if (!gameOver) {
+      final currentPlayerInCheck = isWhiteTurn ? whiteInCheck : blackInCheck;
+      final hasLegalMoves = _hasAnyLegalMove(isWhiteTurn);
+
+      if (currentPlayerInCheck && !hasLegalMoves) {
+        // Checkmate!
+        gameOver = true;
+        winner = isWhiteTurn ? 'Black' : 'White';
+        status = 'Checkmate! $winner wins!';
+        _showGameOverDialog('Checkmate! $winner wins!');
+      } else if (!currentPlayerInCheck && !hasLegalMoves) {
+        // Stalemate
+        gameOver = true;
+        status = 'Stalemate! Game drawn.';
+        _showGameOverDialog('Stalemate! Game drawn.');
+      }
     }
   }
 
-  void _movePiece(int toRow, int toCol) {
-     // Local move
-     // Send move to opponent
-     if (_isConnectedToRoom) {
-       _signalingService.sendMove({
-         'fromRow': selectedRow,
-         'fromCol': selectedCol,
-         'toRow': toRow,
-         'toCol': toCol,
-         'movedPiece': selectedPiece,
-       });
-     }
+  void _checkForDraws() {
+    // 50-move rule
+    if (_isFiftyMoveDraw()) {
+      gameOver = true;
+      status = 'Draw by 50-move rule';
+      _showGameOverDialog('Draw by 50-move rule');
+      return;
+    }
 
-     setState(() {
-        _executeMove(selectedRow, selectedCol, toRow, toCol, selectedPiece);
-     });
+    // Threefold repetition
+    if (_isThreefoldRepetition()) {
+      gameOver = true;
+      status = 'Draw by threefold repetition';
+      _showGameOverDialog('Draw by threefold repetition');
+      return;
+    }
+
+    // Insufficient material
+    if (_isInsufficientMaterial()) {
+      gameOver = true;
+      status = 'Draw by insufficient material';
+      _showGameOverDialog('Draw by insufficient material');
+      return;
+    }
+  }
+
+  void _showPromotionDialog(int row, int col, bool isWhite) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text('Pawn Promotion'),
+        content: Text('Choose a piece to promote to:'),
+        actions: [
+          _buildPromotionButton('Queen', 'q', row, col, isWhite),
+          _buildPromotionButton('Rook', 'r', row, col, isWhite),
+          _buildPromotionButton('Bishop', 'b', row, col, isWhite),
+          _buildPromotionButton('Knight', 'n', row, col, isWhite),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPromotionButton(
+      String label, String pieceType, int row, int col, bool isWhite) {
+    final pieceCode = (isWhite ? 'w' : 'b') + pieceType;
+    return TextButton(
+      onPressed: () {
+        Navigator.pop(context);
+        // Complete the promotion
+        board[row][col] = pieceCode;
+        pendingPromotion = null;
+
+        // Send promotion move to opponent if connected
+        if (_isConnectedToRoom) {
+          _signalingService.sendMove({
+            'fromRow': selectedRow,
+            'fromCol': selectedCol,
+            'toRow': row,
+            'toCol': col,
+            'movedPiece': (isWhite ? 'w' : 'b') + 'p',
+            'promotion': pieceType,
+          });
+        }
+
+        // Continue with turn logic
+        setState(() {
+          _updateCheckStatus();
+          _checkForDraws();
+        });
+      },
+      child: Text('$label ${pieceIcons[pieceCode]}'),
+    );
+  }
+
+  void _movePiece(int toRow, int toCol) {
+    // Local move
+    // Send move to opponent
+    if (_isConnectedToRoom) {
+      _signalingService.sendMove({
+        'fromRow': selectedRow,
+        'fromCol': selectedCol,
+        'toRow': toRow,
+        'toCol': toCol,
+        'movedPiece': selectedPiece,
+        'promotion': null, // Will be set if it's a promotion
+      });
+    }
+
+    setState(() {
+      _executeMove(selectedRow, selectedCol, toRow, toCol, selectedPiece);
+    });
   }
 
   void _initializeBoard() {
@@ -541,11 +928,27 @@ class _ChessGameScreenState extends State<ChessScreen> {
     gameOver = false;
     winner = '';
 
+    // Reset advanced state
+    whiteKingMoved = false;
+    blackKingMoved = false;
+    whiteKingsideRookMoved = false;
+    whiteQueensideRookMoved = false;
+    blackKingsideRookMoved = false;
+    blackQueensideRookMoved = false;
+    enPassantTarget = null;
+    halfMoveClock = 0;
+    fullMoveNumber = 1;
+    positionHistory.clear();
+    pendingPromotion = null;
+
     // Set up initial pieces
     board[0] = ['br', 'bn', 'bb', 'bq', 'bk', 'bb', 'bn', 'br'];
     board[1] = List.filled(8, 'bp');
     board[6] = List.filled(8, 'wp');
     board[7] = ['wr', 'wn', 'wb', 'wq', 'wk', 'wb', 'wn', 'wr'];
+
+    whiteCapturedPieces.clear();
+    blackCapturedPieces.clear();
 
     setState(() {
       status = "White's turn";
@@ -716,17 +1119,35 @@ class _ChessGameScreenState extends State<ChessScreen> {
       for (int col = 0; col < 8; col++) {
         final piece = board[row][col];
         if (piece.isNotEmpty && _isWhitePiece(piece) == isWhite) {
-          // Try all possible moves for this piece
-          final pieceType = _getPieceType(piece);
+          // Get all possible moves for this piece (including special moves)
           final moves =
-              _getAllPossibleMoves(row, col, piece, pieceType, isWhite);
+              _getAllPossibleMovesWithSpecials(row, col, piece, isWhite);
 
           // Try each move to see if it's legal (doesn't leave king in check)
           for (final move in moves) {
             // Simulate the move
             final originalPiece = board[move[0]][move[1]];
+            final isSpecial = move.length > 2;
+            final specialType = isSpecial ? move[2] : null;
+
             board[move[0]][move[1]] = piece;
             board[row][col] = '';
+
+            // Handle special moves in simulation
+            if (specialType == 'enpassant') {
+              // Remove the captured pawn in en passant
+              final capturedRow = row;
+              final capturedCol = move[1];
+              board[capturedRow][capturedCol] = '';
+            } else if (specialType == 'castling_kingside') {
+              // Move rook for kingside castling
+              board[move[0]][move[1] - 1] = isWhite ? 'wr' : 'br';
+              board[move[0]][7] = '';
+            } else if (specialType == 'castling_queenside') {
+              // Move rook for queenside castling
+              board[move[0]][move[1] + 1] = isWhite ? 'wr' : 'br';
+              board[move[0]][0] = '';
+            }
 
             // Check if king is still in check after move
             final kingPos = _findKingPosition(isWhite);
@@ -737,6 +1158,21 @@ class _ChessGameScreenState extends State<ChessScreen> {
             board[row][col] = piece;
             board[move[0]][move[1]] = originalPiece;
 
+            if (specialType == 'enpassant') {
+              // Restore the captured pawn
+              final capturedRow = row;
+              final capturedCol = move[1];
+              board[capturedRow][capturedCol] = isWhite ? 'bp' : 'wp';
+            } else if (specialType == 'castling_kingside') {
+              // Restore rook
+              board[move[0]][7] = isWhite ? 'wr' : 'br';
+              board[move[0]][move[1] - 1] = '';
+            } else if (specialType == 'castling_queenside') {
+              // Restore rook
+              board[move[0]][0] = isWhite ? 'wr' : 'br';
+              board[move[0]][move[1] + 1] = '';
+            }
+
             if (!stillInCheck) {
               return true; // Found at least one legal move
             }
@@ -745,6 +1181,84 @@ class _ChessGameScreenState extends State<ChessScreen> {
       }
     }
     return false; // No legal moves found
+  }
+
+  /// Get all possible moves for a piece (including special moves)
+  List<List<dynamic>> _getAllPossibleMovesWithSpecials(
+      int row, int col, String piece, bool isWhite) {
+    final pieceType = _getPieceType(piece);
+    List<List<dynamic>> moves = [];
+
+    // Add regular moves
+    final regularMoves =
+        _getAllPossibleMoves(row, col, piece, pieceType, isWhite);
+    moves.addAll(regularMoves.map((move) => [move[0], move[1]]));
+
+    // Add special moves
+    if (pieceType == 'p') {
+      // En passant
+      if (enPassantTarget != null) {
+        final targetPos = _fromAlgebraic(enPassantTarget!);
+        final targetRow = targetPos[0];
+        final targetCol = targetPos[1];
+
+        // Check if pawn can capture en passant
+        final direction = isWhite ? -1 : 1;
+        final pawnRow = row + direction;
+
+        if (pawnRow == targetRow &&
+            (col - 1 == targetCol || col + 1 == targetCol)) {
+          moves.add([targetRow, targetCol, 'enpassant']);
+        }
+      }
+    } else if (pieceType == 'k') {
+      // Castling
+      if (!isWhite) {
+        // Black king castling
+        if (!blackKingMoved && row == 0 && col == 4) {
+          // Kingside castling
+          if (!blackKingsideRookMoved &&
+              board[0][5].isEmpty &&
+              board[0][6].isEmpty &&
+              !_isSquareUnderAttack(0, 5, false) &&
+              !_isSquareUnderAttack(0, 6, false)) {
+            moves.add([0, 6, 'castling_kingside']);
+          }
+          // Queenside castling
+          if (!blackQueensideRookMoved &&
+              board[0][3].isEmpty &&
+              board[0][2].isEmpty &&
+              board[0][1].isEmpty &&
+              !_isSquareUnderAttack(0, 3, false) &&
+              !_isSquareUnderAttack(0, 2, false)) {
+            moves.add([0, 2, 'castling_queenside']);
+          }
+        }
+      } else {
+        // White king castling
+        if (!whiteKingMoved && row == 7 && col == 4) {
+          // Kingside castling
+          if (!whiteKingsideRookMoved &&
+              board[7][5].isEmpty &&
+              board[7][6].isEmpty &&
+              !_isSquareUnderAttack(7, 5, true) &&
+              !_isSquareUnderAttack(7, 6, true)) {
+            moves.add([7, 6, 'castling_kingside']);
+          }
+          // Queenside castling
+          if (!whiteQueensideRookMoved &&
+              board[7][3].isEmpty &&
+              board[7][2].isEmpty &&
+              board[7][1].isEmpty &&
+              !_isSquareUnderAttack(7, 3, true) &&
+              !_isSquareUnderAttack(7, 2, true)) {
+            moves.add([7, 2, 'castling_queenside']);
+          }
+        }
+      }
+    }
+
+    return moves;
   }
 
   /// Get all possible moves for a piece (without considering check)
@@ -760,11 +1274,11 @@ class _ChessGameScreenState extends State<ChessScreen> {
       if (newRow >= 0 && newRow < 8 && board[newRow][col].isEmpty) {
         moves.add([newRow, col]);
 
-        // Double move
+        // Double move from starting position
         final startRow = isWhite ? 6 : 1;
         if (row == startRow) {
           final doubleRow = row + 2 * direction;
-          if (board[doubleRow][col].isEmpty) {
+          if (board[doubleRow][col].isEmpty && board[newRow][col].isEmpty) {
             moves.add([doubleRow, col]);
           }
         }
@@ -888,10 +1402,7 @@ class _ChessGameScreenState extends State<ChessScreen> {
         if (newRow >= 0 && newRow < 8 && newCol >= 0 && newCol < 8) {
           final targetPiece = board[newRow][newCol];
           if (targetPiece.isEmpty || _isWhitePiece(targetPiece) != isWhite) {
-            // Check if the destination is not under attack
-            if (!_isSquareUnderAttack(newRow, newCol, isWhite)) {
-              moves.add([newRow, newCol]);
-            }
+            moves.add([newRow, newCol]);
           }
         }
       }
@@ -910,18 +1421,36 @@ class _ChessGameScreenState extends State<ChessScreen> {
     final pieceType = _getPieceType(piece);
     final isWhite = _isWhitePiece(piece);
 
-    // Get all possible moves for this piece
-    final moves = _getAllPossibleMoves(row, col, piece, pieceType, isWhite);
+    // Get all possible moves for this piece (including special moves)
+    final moves = _getAllPossibleMovesWithSpecials(row, col, piece, isWhite);
 
     // Filter moves that would leave king in check
     for (final move in moves) {
       final toRow = move[0];
       final toCol = move[1];
+      final isSpecial = move.length > 2;
+      final specialType = isSpecial ? move[2] : null;
 
       // Simulate the move
       final originalPiece = board[toRow][toCol];
       board[toRow][toCol] = piece;
       board[row][col] = '';
+
+      // Handle special moves in simulation
+      if (specialType == 'enpassant') {
+        // Remove the captured pawn in en passant
+        final capturedRow = row;
+        final capturedCol = toCol;
+        board[capturedRow][capturedCol] = '';
+      } else if (specialType == 'castling_kingside') {
+        // Move rook for kingside castling
+        board[toRow][toCol - 1] = isWhite ? 'wr' : 'br';
+        board[toRow][7] = '';
+      } else if (specialType == 'castling_queenside') {
+        // Move rook for queenside castling
+        board[toRow][toCol + 1] = isWhite ? 'wr' : 'br';
+        board[toRow][0] = '';
+      }
 
       // Check if king is still in check after this move
       final kingPos = _findKingPosition(isWhite);
@@ -932,6 +1461,21 @@ class _ChessGameScreenState extends State<ChessScreen> {
       board[row][col] = piece;
       board[toRow][toCol] = originalPiece;
 
+      if (specialType == 'enpassant') {
+        // Restore the captured pawn
+        final capturedRow = row;
+        final capturedCol = toCol;
+        board[capturedRow][capturedCol] = isWhite ? 'bp' : 'wp';
+      } else if (specialType == 'castling_kingside') {
+        // Restore rook
+        board[toRow][7] = isWhite ? 'wr' : 'br';
+        board[toRow][toCol - 1] = '';
+      } else if (specialType == 'castling_queenside') {
+        // Restore rook
+        board[toRow][0] = isWhite ? 'wr' : 'br';
+        board[toRow][toCol + 1] = '';
+      }
+
       // Only allow move if it doesn't leave king in check
       if (!stillInCheck) {
         validMoves[toRow][toCol] = true;
@@ -940,7 +1484,7 @@ class _ChessGameScreenState extends State<ChessScreen> {
   }
 
   void _onSquareTap(int row, int col) {
-    if (gameOver) return;
+    if (gameOver || pendingPromotion != null) return;
 
     final piece = board[row][col];
 
@@ -948,16 +1492,17 @@ class _ChessGameScreenState extends State<ChessScreen> {
       // Selecting a piece
       if (piece.isNotEmpty) {
         final isPieceWhite = _isWhitePiece(piece);
-        
+
         // Multiplayer movement restriction
         if (_isConnectedToRoom && _playerColor != null) {
-           final isMyPiece = (isPieceWhite && _playerColor == 'w') || (!isPieceWhite && _playerColor == 'b');
-           if (!isMyPiece) {
-             ScaffoldMessenger.of(context).showSnackBar(
-               SnackBar(content: Text("That is your opponent's piece!"), duration: Duration(milliseconds: 500))
-             );
-             return;
-           }
+          final isMyPiece = (isPieceWhite && _playerColor == 'w') ||
+              (!isPieceWhite && _playerColor == 'b');
+          if (!isMyPiece) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text("That is your opponent's piece!"),
+                duration: Duration(milliseconds: 500)));
+            return;
+          }
         }
 
         if ((isPieceWhite && isWhiteTurn) || (!isPieceWhite && !isWhiteTurn)) {
@@ -997,7 +1542,7 @@ class _ChessGameScreenState extends State<ChessScreen> {
   }
 
   void _undoMove() {
-    if (moveHistory.isEmpty || gameOver) {
+    if (moveHistory.isEmpty || gameOver || pendingPromotion != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No moves to undo')),
       );
@@ -1005,14 +1550,63 @@ class _ChessGameScreenState extends State<ChessScreen> {
     }
 
     final lastMove = moveHistory.removeLast();
+    if (lastMove['capturedPiece'].isNotEmpty && !lastMove['isEnPassant']) {
+      if (lastMove['wasWhiteTurn']) {
+        if (blackCapturedPieces.isNotEmpty) {
+          blackCapturedPieces.removeLast();
+        }
+      } else {
+        if (whiteCapturedPieces.isNotEmpty) {
+          whiteCapturedPieces.removeLast();
+        }
+      }
+    }
 
     setState(() {
       // Restore captured piece
-      board[lastMove['toRow']][lastMove['toCol']] = lastMove['capturedPiece'];
+      if (lastMove['isEnPassant']) {
+        // For en passant, restore pawn in different square
+        final capturedRow = lastMove['wasWhiteTurn']
+            ? lastMove['toRow'] + 1
+            : lastMove['toRow'] - 1;
+        board[capturedRow][lastMove['toCol']] = lastMove['capturedPiece'];
+        board[lastMove['toRow']][lastMove['toCol']] = '';
+      } else {
+        board[lastMove['toRow']][lastMove['toCol']] = lastMove['capturedPiece'];
+      }
+
       // Move piece back
       board[lastMove['fromRow']][lastMove['fromCol']] = lastMove['movedPiece'];
+
+      // Handle castling undo
+      if (lastMove['isCastling']) {
+        if (lastMove['toCol'] > lastMove['fromCol']) {
+          // Undo kingside castling
+          board[lastMove['toRow']][7] =
+              board[lastMove['toRow']][lastMove['toCol'] - 1];
+          board[lastMove['toRow']][lastMove['toCol'] - 1] = '';
+        } else {
+          // Undo queenside castling
+          board[lastMove['toRow']][0] =
+              board[lastMove['toRow']][lastMove['toCol'] + 1];
+          board[lastMove['toRow']][lastMove['toCol'] + 1] = '';
+        }
+      }
+
+      // Restore castling rights if needed
+      if (lastMove['movedPiece'] == 'wk')
+        whiteKingMoved = moveHistory.any((move) => move['movedPiece'] == 'wk');
+      if (lastMove['movedPiece'] == 'bk')
+        blackKingMoved = moveHistory.any((move) => move['movedPiece'] == 'bk');
+      // Similar for rooks...
+
       // Restore turn
       isWhiteTurn = lastMove['wasWhiteTurn'];
+
+      // Update position history
+      if (positionHistory.isNotEmpty) {
+        positionHistory.removeLast();
+      }
 
       // Update check status
       _updateCheckStatus();
@@ -1028,6 +1622,9 @@ class _ChessGameScreenState extends State<ChessScreen> {
           validMoves[i][j] = false;
         }
       }
+
+      gameOver = false;
+      status = isWhiteTurn ? "White's turn" : "Black's turn";
     });
   }
 
@@ -1063,6 +1660,13 @@ class _ChessGameScreenState extends State<ChessScreen> {
       isKingInCheck = _isWhitePiece(piece) ? whiteInCheck : blackInCheck;
     }
 
+    // Check if this is en passant target square
+    bool isEnPassantTarget = false;
+    if (enPassantTarget != null) {
+      final targetPos = _fromAlgebraic(enPassantTarget!);
+      isEnPassantTarget = (row == targetPos[0] && col == targetPos[1]);
+    }
+
     Color squareColor;
     if (isSelected) {
       squareColor = Colors.yellow.withOpacity(0.5);
@@ -1070,6 +1674,8 @@ class _ChessGameScreenState extends State<ChessScreen> {
       squareColor = Colors.green.withOpacity(0.3);
     } else if (isKingInCheck) {
       squareColor = Colors.red.withOpacity(0.5); // Red for king in check
+    } else if (isEnPassantTarget) {
+      squareColor = Colors.blue.withOpacity(0.2); // Blue for en passant target
     } else {
       squareColor =
           isWhiteSquare ? const Color(0xFFF0D9B5) : const Color(0xFFB58863);
@@ -1106,30 +1712,30 @@ class _ChessGameScreenState extends State<ChessScreen> {
         backgroundColor: Colors.blue[800],
         actions: [
           if (_isConnectedToRoom) ...[
-             if (!_isAudioOn)
-               IconButton(
-                 icon: const Icon(Icons.call, color: Colors.white),
-                 onPressed: _toggleAudio,
-                 tooltip: "Start Audio Call",
-               ),
-             if (_isAudioOn) ...[
-                 IconButton(
-                   icon: Icon(_isMuted ? Icons.mic_off : Icons.mic),
-                   color: _isMuted ? Colors.red : Colors.white,
-                   onPressed: _toggleMute,
-                   tooltip: _isMuted ? "Unmute" : "Mute",
-                 ),
-                 IconButton(
-                   icon: const Icon(Icons.call_end, color: Colors.red),
-                   onPressed: _toggleAudio, // Ends audio call
-                   tooltip: 'End Call',
-                 ),
-             ],
-             IconButton(
-               icon: const Icon(Icons.logout, color: Colors.white),
-               onPressed: _onLogout,
-               tooltip: 'Leave Room',
-             ),
+            if (!_isAudioOn)
+              IconButton(
+                icon: const Icon(Icons.call, color: Colors.white),
+                onPressed: _toggleAudio,
+                tooltip: "Start Audio Call",
+              ),
+            if (_isAudioOn) ...[
+              IconButton(
+                icon: Icon(_isMuted ? Icons.mic_off : Icons.mic),
+                color: _isMuted ? Colors.red : Colors.white,
+                onPressed: _toggleMute,
+                tooltip: _isMuted ? "Unmute" : "Mute",
+              ),
+              IconButton(
+                icon: const Icon(Icons.call_end, color: Colors.red),
+                onPressed: _toggleAudio, // Ends audio call
+                tooltip: 'End Call',
+              ),
+            ],
+            IconButton(
+              icon: const Icon(Icons.logout, color: Colors.white),
+              onPressed: _onLogout,
+              tooltip: 'Leave Room',
+            ),
           ]
         ],
       ),
@@ -1220,6 +1826,9 @@ class _ChessGameScreenState extends State<ChessScreen> {
             ),
           ),
 
+          // Top captured pieces (Black's captures - pieces captured by Black)
+          _buildCapturedDisplay(whiteCapturedPieces),
+
           // Chess Board
           Expanded(
             child: Center(
@@ -1251,6 +1860,10 @@ class _ChessGameScreenState extends State<ChessScreen> {
               ),
             ),
           ),
+
+          // Bottom captured pieces (White's captures - pieces captured by White)
+          _buildCapturedDisplay(blackCapturedPieces),
+
           // Call Status Footer (Only show when message is active)
           if (_callStatus.isNotEmpty)
             Container(
@@ -1264,7 +1877,8 @@ class _ChessGameScreenState extends State<ChessScreen> {
                   SizedBox(width: 8),
                   Text(
                     _callStatus,
-                    style: TextStyle(color: Colors.green[800], fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                        color: Colors.green[800], fontWeight: FontWeight.w500),
                   ),
                 ],
               ),
@@ -1277,11 +1891,16 @@ class _ChessGameScreenState extends State<ChessScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 ElevatedButton.icon(
-                  onPressed: _isConnectedToRoom ? null : _undoMove,
+                  onPressed: _isConnectedToRoom || pendingPromotion != null
+                      ? null
+                      : _undoMove,
                   icon: const Icon(Icons.undo),
                   label: const Text('Undo Move'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _isConnectedToRoom ? Colors.grey : Colors.orange,
+                    backgroundColor:
+                        (_isConnectedToRoom || pendingPromotion != null)
+                            ? Colors.grey
+                            : Colors.orange,
                     padding: const EdgeInsets.symmetric(
                         horizontal: 20, vertical: 12),
                   ),
@@ -1289,7 +1908,7 @@ class _ChessGameScreenState extends State<ChessScreen> {
                 ElevatedButton.icon(
                   onPressed: () {
                     if (_isConnectedToRoom) {
-                       _signalingService.sendNewGame();
+                      _signalingService.sendNewGame();
                     }
                     _initializeBoard();
                   },
@@ -1316,6 +1935,50 @@ class _ChessGameScreenState extends State<ChessScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCapturedDisplay(List<String> capturedPieces) {
+    // Sort pieces by value (queen > rook > bishop/knight > pawn)
+    final sortedPieces = List.from(capturedPieces)
+      ..sort((a, b) {
+        final values = {'q': 9, 'r': 5, 'b': 3, 'n': 3, 'p': 1};
+        final aValue = values[_getPieceType(a)] ?? 0;
+        final bValue = values[_getPieceType(b)] ?? 0;
+        return bValue.compareTo(aValue); // Descending order
+      });
+
+    return Container(
+      height: 40,
+      margin: EdgeInsets.symmetric(vertical: 8),
+      child: sortedPieces.isEmpty
+          ? SizedBox()
+          : Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              alignment: WrapAlignment.center,
+              children: sortedPieces.map((piece) {
+                return Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: _isWhitePiece(piece) ? Colors.white : Colors.black,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.grey),
+                  ),
+                  child: Center(
+                    child: Text(
+                      pieceIcons[piece] ?? '',
+                      style: TextStyle(
+                        fontSize: 20,
+                        color:
+                            _isWhitePiece(piece) ? Colors.black : Colors.white,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
     );
   }
 }

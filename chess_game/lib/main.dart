@@ -9,7 +9,7 @@ import 'screens/auth/forgot_password.dart';
 import 'screens/game/chess_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/auth/auth_service.dart';
-import 'screens/call_screen.dart'; // NEW
+import 'screens/call_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,10 +49,8 @@ class MyApp extends StatelessWidget {
         ),
         GoRoute(
           path: '/call',
-          builder: (context, state) => const CallScreen(
-            roomId: 'testroom', 
-            host: ''
-          ), 
+          builder: (context, state) =>
+              const CallScreen(roomId: 'testroom', host: ''),
         ),
       ],
       redirect: (context, state) {
