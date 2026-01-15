@@ -181,7 +181,10 @@ class AuthService {
       
       final response = await http.post(
         Uri.parse(url),
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: json.encode({'firebase_token': token}),
       );
 
@@ -195,6 +198,15 @@ class AuthService {
         }
       } else {
         print('⚠️ Failed to sync session: ${response.statusCode}');
+        try {
+          final errorData = json.decode(response.body);
+          if (errorData['traceback'] != null) {
+            print('🔍 Backend Traceback:');
+            print(errorData['traceback']);
+          }
+        } catch (e) {
+          print('Could not parse error body: $e');
+        }
       }
     } catch (e) {
       print('❌ Error syncing session: $e');
