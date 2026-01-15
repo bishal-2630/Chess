@@ -5,8 +5,11 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../services/config.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 class AuthService {
+
+
   // Singleton pattern
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
@@ -14,6 +17,7 @@ class AuthService {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final CookieManager _cookieManager = CookieManager.instance();
 
   // Guest State
   bool _isGuest = false;
@@ -50,6 +54,10 @@ class AuthService {
         email: email.trim(),
         password: password,
       );
+      
+      // Sync session with backend to get cookies
+      await syncSessionWithBackend(userCredential.user);
+      
       print('✅ Sign in successful: ${userCredential.user?.email}');
       return userCredential.user;
     } on FirebaseAuthException catch (e) {
@@ -93,6 +101,9 @@ class AuthService {
 
       await userCredential.user!.reload();
 
+      // Sync session with backend
+      await syncSessionWithBackend(userCredential.user);
+
       print('✅ Registration successful: ${userCredential.user?.email}');
       return userCredential.user;
     } catch (e) {
@@ -133,6 +144,9 @@ class AuthService {
       final UserCredential userCredential =
           await _auth.signInWithCredential(credential);
 
+      // Sync session with backend to get cookies
+      await syncSessionWithBackend(userCredential.user);
+
       print('✅ Google sign in successful: ${userCredential.user?.email}');
       return userCredential.user;
     } on FirebaseAuthException catch (e) {
@@ -151,6 +165,84 @@ class AuthService {
       print('❌ Google sign in error: $e');
       throw Exception(
           'Google sign in failed. Please make sure Google Play Services are updated.');
+    }
+  }
+
+  // Sync session with Django backend to inject cookies
+  Future<void> syncSessionWithBackend(User? user) async {
+    if (user == null) return;
+    
+    try {
+      print('🔄 Syncing session with backend...');
+      String? token = await user.getIdToken();
+      if (token == null) return;
+
+      final url = '${_baseUrl}firebase-login/';
+      
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'firebase_token': token}),
+      );
+
+      if (response.statusCode == 200) {
+        print('✅ Session synced with backend');
+        
+        // Extract cookies from response headers
+        String? rawCookie = response.headers['set-cookie'];
+        if (rawCookie != null) {
+           await _injectCookies(rawCookie);
+        }
+      } else {
+        print('⚠️ Failed to sync session: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ Error syncing session: $e');
+    }
+  }
+
+  Future<void> _injectCookies(String rawCookie) async {
+    try {
+      // Basic parsing to split multiple cookies if present
+      // Note: set-cookie header might be combined or separate depending on the http client and server.
+      // 'http' package combines them with commas, but cookies themselves can contain commas (in dates).
+      // A simple split might be risky, but common for simple session/csrf cookies.
+      
+      // Better approach: Regex or specialized parser. For now, we assume standard Django cookies.
+      
+      // Determine domain from baseUrl
+      Uri uri = Uri.parse(_baseUrl);
+      String domain = uri.host;
+      
+      // Split by comma only if it looks like a separator (followed by key=value)
+      // This is a naive implementation; for production consider 'cookie_jar' or similar.
+      List<String> cookies = rawCookie.split(RegExp(r',(?=\s*[a-zA-Z0-9_-]+=)')); 
+      
+      for (String cookie in cookies) {
+        int equalsIndex = cookie.indexOf('=');
+        if (equalsIndex == -1) continue;
+        
+        String key = cookie.substring(0, equalsIndex).trim();
+        String valueAndAttributes = cookie.substring(equalsIndex + 1).trim();
+        
+        // Extract value (semicolon terminates value)
+        int semiIndex = valueAndAttributes.indexOf(';');
+        String value = semiIndex == -1 ? valueAndAttributes : valueAndAttributes.substring(0, semiIndex);
+        
+        print('🍪 Injecting Cookie: $key for domain: $domain');
+        
+        await _cookieManager.setCookie(
+          url: WebUri(_baseUrl), 
+          name: key, 
+          value: value,
+          domain: domain,
+          path: "/",
+          isHttpOnly: false, 
+          isSecure: uri.scheme == 'https', 
+        );
+      }
+    } catch (e) {
+      print('❌ Error injecting cookies: $e');
     }
   }
 
