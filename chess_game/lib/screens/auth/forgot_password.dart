@@ -22,6 +22,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   // State variables
   bool _isLoading = false;
   bool _canResendOTP = false;
+  bool _obscureNewPassword = true;
+  bool _obscureConfirmPassword = true;
   int _resendTimer = 60;
   Timer? _timer;
 
@@ -429,13 +431,25 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     children: [
                       TextFormField(
                         controller: _newPasswordController,
-                        obscureText: true,
+                        obscureText: _obscureNewPassword,
                         decoration: InputDecoration(
                           labelText: 'New Password',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
                           prefixIcon: const Icon(Icons.lock),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureNewPassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscureNewPassword = !_obscureNewPassword;
+                              });
+                            },
+                          ),
                           filled: true,
                           fillColor: Colors.grey[50],
                         ),
@@ -446,13 +460,25 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
                       TextFormField(
                         controller: _confirmPasswordController,
-                        obscureText: true,
+                        obscureText: _obscureConfirmPassword,
                         decoration: InputDecoration(
                           labelText: 'Confirm Password',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
                           prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureConfirmPassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscureConfirmPassword = !_obscureConfirmPassword;
+                              });
+                            },
+                          ),
                           filled: true,
                           fillColor: Colors.grey[50],
                         ),

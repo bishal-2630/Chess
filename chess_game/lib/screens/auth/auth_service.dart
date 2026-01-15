@@ -274,7 +274,7 @@ class AuthService {
             headers: {'Content-Type': 'application/json'},
             body: json.encode({'email': email}),
           )
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 20));
 
       print("📡 Response status: ${response.statusCode}");
 
@@ -297,20 +297,20 @@ class AuthService {
       } else {
         return {
           'success': false,
-          'message': 'Server error: ${response.statusCode}',
+          'message': 'Server error: ${response.statusCode}. ${responseData['message'] ?? ""}',
         };
       }
     } on TimeoutException {
-      print("⏱️ Request timeout - backend might not be running");
+      print("⏱️ Request timeout - backend might be slow or email sending delayed");
       return {
         'success': false,
-        'message': 'Cannot connect to backend. Make sure Django is running.',
+        'message': 'Connection timeout. The server is taking too long to respond. Please try again.',
       };
     } catch (e) {
       print("❌ Network error: $e");
       return {
         'success': false,
-        'message': 'Backend connection failed.',
+        'message': 'Backend connection failed: ${e.toString()}',
       };
     }
   }
