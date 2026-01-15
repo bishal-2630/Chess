@@ -102,11 +102,12 @@ class _ChessGameScreenState extends State<ChessScreen> {
     _signalingService.onPlayerLeft = () {
       print("Opponent left");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text("Opponent left the room."),
+        content: Text("Opponent left the room. Resetting game."),
         backgroundColor: Colors.redAccent,
         behavior: SnackBarBehavior.floating,
         duration: Duration(seconds: 5),
       ));
+      _initializeBoard(); // Reset board state
       _hangUp(); // Disconnect self
     };
 
@@ -1856,8 +1857,9 @@ class _ChessGameScreenState extends State<ChessScreen> {
                       ),
                       itemCount: 64,
                       itemBuilder: (context, index) {
-                        final row = index ~/ 8;
-                        final col = index % 8;
+                        // Flip board for black player
+                        final row = _playerColor == 'b' ? 7 - (index ~/ 8) : index ~/ 8;
+                        final col = _playerColor == 'b' ? 7 - (index % 8) : index % 8;
                         return _buildChessSquare(row, col);
                       },
                     ),
