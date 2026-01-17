@@ -136,13 +136,11 @@ CHANNEL_LAYERS = {
 }
 
 
-# Database configuration
-# Uses DATABASE_URL environment variable (PostgreSQL on Railway)
 DATABASES = {
-    'default': dj_database_url.config(
-        default="sqlite:///:memory:",  # Minimal fallback for testing
+    "default": dj_database_url.parse(
+        os.environ["DATABASE_URL"],   
         conn_max_age=600,
-        conn_health_checks=True,
+        ssl_require=True,
     )
 }
 
