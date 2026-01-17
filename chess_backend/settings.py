@@ -167,7 +167,7 @@ USE_I18N = True
 USE_TZ = True
 
 # Static files configuration for Railway
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Ensure directory exists to silence warning
@@ -179,9 +179,9 @@ WHITENOISE_USE_FINDERS = True
 # Use simple storage to avoid manifest errors
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
-# Static files directories - include Flutter web files
+# Static files directories - include static directory
 STATICFILES_DIRS = [
-    BASE_DIR,  # Include root directory for Flutter files
+    BASE_DIR / 'static',  # Include static directory for Flutter files
 ]
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
