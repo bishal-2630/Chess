@@ -10,29 +10,28 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Use config or fallback values
 try:
-    SECRET_KEY = config('SECRET_KEY', default='chess-game-bishal-2024-termux-key')
+    SECRET_KEY = config('SECRET_KEY', default='chess-game-bishal-2024-railway-key')
     DEBUG = config('DEBUG', default=False, cast=bool)
     ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*').split(',')
-    RAILWAY_HOSTNAME = config('RAILWAY_STATIC_URL', default='chess-game-app-production.up.railway.app')
+    
+    # Railway hostname support
+    RAILWAY_HOSTNAME = config('RAILWAY_STATIC_URL', default='')
     if RAILWAY_HOSTNAME:
         ALLOWED_HOSTS.append(RAILWAY_HOSTNAME)
     
-    # Vercel hostname support
-    VERCEL_URL = os.environ.get('VERCEL_URL')
-    if VERCEL_URL:
-        ALLOWED_HOSTS.append(VERCEL_URL)
-        ALLOWED_HOSTS.append(f'*.{VERCEL_URL.split(".", 1)[-1]}' if '.' in VERCEL_URL else VERCEL_URL)
+    # Add common Railway domains
+    ALLOWED_HOSTS.extend([
+        'railway.app',
+        'up.railway.app',
+        'production.up.railway.app',
+        'staging.up.railway.app'
+    ])
 
 # Debugging Paths
 except:
-    SECRET_KEY = 'chess-game-bishal-2024-termux-key'
+    SECRET_KEY = 'chess-game-bishal-2024-railway-key'
     DEBUG = False
     ALLOWED_HOSTS = ['*']
-
-# Add Vercel URLs to ALLOWED_HOSTS if not already added
-VERCEL_URL = os.environ.get('VERCEL_URL')
-if VERCEL_URL and VERCEL_URL not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append(VERCEL_URL)
 
 # Flutter Web Directory
 FLUTTER_WEB_DIR = BASE_DIR / 'chess_game' / 'build' / 'web'
@@ -136,11 +135,10 @@ CHANNEL_LAYERS = {
 
 
 # Database configuration
-# Uses DATABASE_URL environment variable if set (PostgreSQL on Vercel)
-# Falls back to SQLite for local development if DATABASE_URL is not set
+# Uses DATABASE_URL environment variable (PostgreSQL on Railway)
 DATABASES = {
     'default': dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",  # Fallback for local dev only
+        default="sqlite:///:memory:",  # Minimal fallback for testing
         conn_max_age=600,
         conn_health_checks=True,
     )
