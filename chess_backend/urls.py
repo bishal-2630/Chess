@@ -23,9 +23,6 @@ urlpatterns = [
     # Test URL for debugging
     path('test/', views.test_view, name='test_view'),
     
-    # Root URL - Serve Flutter app
-    path('', views.serve_flutter_app, name='serve_flutter_app'),
-    
     # Health Check
     path('health/', views.health_check, name='health_check'),
     
@@ -39,4 +36,7 @@ urlpatterns = [
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     path('swagger.json/', schema_view.without_ui(cache_timeout=0), name='schema-json'),
+    
+    # Flutter app - catch all remaining paths (must be last)
+    re_path(r'^.*$', views.serve_flutter_app, name='serve_flutter_app'),
 ]

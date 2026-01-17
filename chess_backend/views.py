@@ -23,28 +23,37 @@ def test_view(request):
     ), content_type='text/html')
 
 def serve_flutter_app(request):
-    """Serve Flutter app - let Railway handle static files"""
+    """Serve Flutter app and its assets"""
+    from django.http import FileResponse, Http404
+    import mimetypes
+    
     path = request.path.lstrip('/')
     
-    print(f"DEBUG: Request path: {request.path}")
-    print(f"DEBUG: Stripped path: {path}")
-    
+    # Root path - serve index.html
     if path == '' or path == '/':
-        # Serve index.html for root path
-        static_dir = Path(__file__).resolve().parent.parent / 'static'
-        index_path = static_dir / 'index.html'
-        print(f"DEBUG: Looking for index.html at: {index_path}")
-        print(f"DEBUG: Index exists: {index_path.exists()}")
-        
-        if index_path.exists():
-            with open(index_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            print(f"DEBUG: Serving index.html successfully")
-            return HttpResponse(content, content_type='text/html')
-        else:
-            error_msg = f"Flutter app not found<br>Looking for: {index_path}"
-            print(f"DEBUG: {error_msg}")
-            return HttpResponse(error_msg, status=404)
-    else:
-        # For any other path, return 404 - Railway handles /static/ automatically
-        return HttpResponse(f"Use /static/ for assets: {path}", status=404)
+        path = 'index.html'
+    
+    # Build full path to static file
+    static_dir = Path(__file__).resolve().parent.parent / 'static'
+    file_path = static_dir / path
+    
+    # Security check - ensure file is within static directory
+    try:
+        file_path = file_path.resolve()
+        static_dir = static_dir.resolve()
+        if not str(file_path).startswith(str(static_dir)):
+            raise Http404("Invalid path")
+    except:
+        raise Http404("Invalid path")
+    
+    # Check if file exists
+    if not file_path.exists() or not file_path.is_file():
+        raise Http404(f"File not found: {path}")
+    
+    # Determine content type
+    content_type, _ = mimetypes.guess_type(str(file_path))
+    if content_type is None:
+        content_type = 'application/octet-stream'
+    
+    # Serve the file
+    return FileResponse(open(file_path, 'rb'), content_type=content_type)
