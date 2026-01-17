@@ -34,3 +34,6 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Flutter web build - Include in static directory for Railway
+!static/
+!static/**
