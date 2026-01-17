@@ -22,7 +22,9 @@ try:
     # Add common Railway domains
     ALLOWED_HOSTS.extend([
         'railway.app',
+        '*.railway.app',
         'up.railway.app',
+        '*.up.railway.app',
         'production.up.railway.app',
         'staging.up.railway.app'
     ])
@@ -239,7 +241,8 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.loca.lt",
     "http://localhost:8080",  
     "http://127.0.0.1:8080",
-    #"https://chess-game-app-production.up.railway.app",
+    "https://*.railway.app",
+    "https://*.up.railway.app",
     "https://chessgame-wheat.vercel.app",
     "https://*.vercel.app",
 ]
