@@ -23,17 +23,15 @@ def test_view(request):
     ), content_type='text/html')
 
 def serve_flutter_app(request):
-    """Serve Flutter app from static files"""
+    """Serve Flutter app - let Railway handle static files"""
     path = request.path.lstrip('/')
-    static_dir = Path(__file__).resolve().parent.parent / 'static'
     
     print(f"DEBUG: Request path: {request.path}")
     print(f"DEBUG: Stripped path: {path}")
-    print(f"DEBUG: Static dir: {static_dir}")
-    print(f"DEBUG: Static dir exists: {static_dir.exists()}")
     
     if path == '' or path == '/':
         # Serve index.html for root path
+        static_dir = Path(__file__).resolve().parent.parent / 'static'
         index_path = static_dir / 'index.html'
         print(f"DEBUG: Looking for index.html at: {index_path}")
         print(f"DEBUG: Index exists: {index_path.exists()}")
@@ -48,35 +46,5 @@ def serve_flutter_app(request):
             print(f"DEBUG: {error_msg}")
             return HttpResponse(error_msg, status=404)
     else:
-        # Try to serve static assets
-        file_path = static_dir / path
-        print(f"DEBUG: Looking for asset: {file_path}")
-        print(f"DEBUG: Asset exists: {file_path.exists()}")
-        
-        if file_path.exists() and file_path.is_file():
-            # Read file based on type
-            if file_path.suffix.lower() in ['.html', '.htm', '.css', '.js']:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-            else:
-                with open(file_path, 'rb') as f:
-                    content = f.read()
-            
-            # Set content type
-            if file_path.suffix.lower() == '.js':
-                content_type = 'application/javascript'
-            elif file_path.suffix.lower() == '.css':
-                content_type = 'text/css'
-            elif file_path.suffix.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.ico']:
-                content_type = 'image/*'
-            elif file_path.suffix.lower() in ['.html', '.htm']:
-                content_type = 'text/html'
-            else:
-                content_type = 'application/octet-stream'
-            
-            print(f"DEBUG: Serving asset: {path} with type: {content_type}")
-            return HttpResponse(content, content_type=content_type)
-        else:
-            error_msg = f"Asset not found: {path}<br>Static dir: {static_dir}"
-            print(f"DEBUG: {error_msg}")
-            return HttpResponse(error_msg, status=404)
+        # For any other path, return 404 - Railway handles /static/ automatically
+        return HttpResponse(f"Use /static/ for assets: {path}", status=404)
