@@ -20,6 +20,9 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    # Test URL for debugging
+    path('test/', views.test_view, name='test_view'),
+    
     # Root URL - Serve Flutter app
     path('', views.serve_flutter_app, name='serve_flutter_app'),
     
