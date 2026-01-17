@@ -166,8 +166,10 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
+# Static files configuration for Railway
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 # Ensure directory exists to silence warning
 if not STATIC_ROOT.exists():
     STATIC_ROOT.mkdir(parents=True, exist_ok=True)
@@ -177,11 +179,10 @@ WHITENOISE_USE_FINDERS = True
 # Use simple storage to avoid manifest errors
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
-# Static files configuration for Vercel
-FLUTTER_WEB_PATH = BASE_DIR / 'public'
+# Static files directories - include Flutter web files
 STATICFILES_DIRS = [
-    FLUTTER_WEB_PATH,
-] if FLUTTER_WEB_PATH.exists() else []
+    BASE_DIR,  # Include root directory for Flutter files
+]
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
